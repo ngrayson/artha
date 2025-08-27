@@ -1,0 +1,40 @@
+{
+  "name": "artha",
+  "version": "0.1.0",
+  "description": "Obsidian Project Management Tool with MCP Integration",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "dev": "npm run dev --workspaces",
+    "test": "npm run test --workspaces",
+    "lint": "npm run lint --workspaces",
+    "clean": "npm run clean --workspaces",
+    "type-check": "npm run type-check --workspaces",
+    "prepare": "husky install"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "eslint": "^8.0.0",
+    "prettier": "^3.0.0",
+    "husky": "^8.0.0",
+    "lint-staged": "^13.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "keywords": [
+    "obsidian",
+    "mcp",
+    "project-management",
+    "typescript",
+    "monorepo"
+  ],
+  "author": "Artha Development Team",
+  "license": "MIT"
+}
