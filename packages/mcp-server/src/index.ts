@@ -146,43 +146,113 @@ export class ObsidianVaultMCPServer {
       this.vaultManager = new VaultManager({ rootPath: vaultPath });
     }
 
-    // For now, we'll use a simplified approach since getAllItems isn't implemented yet
-    // This will be updated once the VaultManager API is fully implemented
-    const outstandingTasks = [
-      {
-        title: 'Sample Task 1',
-        status: 'To Do',
-        dueDate: '2025-08-30',
-        area: 'Unassigned',
-        parentProjects: [],
-      },
-      {
-        title: 'Sample Task 2',
-        status: 'In Progress',
-        dueDate: '2025-08-29',
-        area: 'Work',
-        parentProjects: ['Project A'],
-      },
-    ];
+    try {
+      // Use the real VaultManager to scan the vault
+      await this.vaultManager.scanVault();
+      
+      // Get all items and filter for tasks
+      const allItems = await this.vaultManager.listItems({
+        type: 'Task',
+        limit: 100,
+        offset: 0,
+        sortBy: 'dueDate',
+        sortOrder: 'asc'
+      });
 
-    const taskList = outstandingTasks
-      .map((task, index) => {
-        const dueDate = task.dueDate || 'No Due Date';
-        const area = task.area || 'Unassigned';
-        const parentProject = task.parentProjects?.[0] || '';
+      if (!allItems.success) {
+        throw new Error(`Failed to list items: ${allItems.error}`);
+      }
+
+      // Filter for outstanding tasks
+      const outstandingTasks = allItems.items.filter(item => 
+        item.type === 'Task' && item.status !== 'Done'
+      ) as Task[];
+
+      if (outstandingTasks.length === 0) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `🎉 No outstanding tasks found in vault: ${this.vaultPath}`,
+            },
+          ],
+        };
+      }
+
+      // Sort by status priority, then by due date
+      const sortedTasks = outstandingTasks.sort((a, b) => {
+        const statusPriority: Record<string, number> = {
+          'In Progress': 1,
+          'To Do': 2,
+          'Blocked': 3,
+          'Unknown': 4
+        };
         
-        return `${index + 1}. **${task.title}** (${task.status}) - Due: ${dueDate} - Area: ${area}${parentProject ? ` - Project: ${parentProject}` : ''}`;
-      })
-      .join('\n');
+        const statusA = statusPriority[a.status] || 5;
+        const statusB = statusPriority[b.status] || 5;
+        
+        if (statusA !== statusB) {
+          return statusA - statusB;
+        }
+        
+        // Then sort by due date (earliest first)
+        if (a.dueDate && b.dueDate) {
+          return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+        }
+        if (a.dueDate) return -1;
+        if (b.dueDate) return 1;
+        
+        return 0;
+      });
 
-    return {
-      content: [
-        {
-          type: 'text',
-          text: `🔍 Vault: ${this.vaultPath}\n\n📋 Top 7 Outstanding Tasks:\n\n${taskList}\n\n📊 Summary:\n   Total outstanding tasks: ${outstandingTasks.length}`,
-        },
-      ],
-    };
+      // Take top 7 tasks
+      const topTasks = sortedTasks.slice(0, 7);
+
+      const taskList = topTasks
+        .map((task, index) => {
+          const dueDate = task.dueDate || 'No Due Date';
+          const area = task.area || 'Unassigned';
+          const parentProjects = task.parentProjects || [];
+          const parentProject = Array.isArray(parentProjects) && parentProjects.length > 0 
+            ? parentProjects[0] 
+            : '';
+          
+          return `${index + 1}. **${task.title}** (${task.status}) - Due: ${dueDate} - Area: ${area}${parentProject ? ` - Project: ${parentProject}` : ''}`;
+        })
+        .join('\n');
+
+      // Calculate summary statistics
+      const overdueTasks = outstandingTasks.filter(task => {
+        if (!task.dueDate) return false;
+        return new Date(task.dueDate) < new Date();
+      });
+
+      const thisWeekTasks = outstandingTasks.filter(task => {
+        if (!task.dueDate) return false;
+        const dueDate = new Date(task.dueDate);
+        const today = new Date();
+        const nextWeek = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
+        return dueDate >= today && dueDate <= nextWeek;
+      });
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `🔍 Vault: ${this.vaultPath}\n\n📋 Top 7 Outstanding Tasks:\n\n${taskList}\n\n📊 Summary:\n   Total outstanding tasks: ${outstandingTasks.length}\n   Overdue tasks: ${overdueTasks.length}\n   Due this week: ${thisWeekTasks.length}`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `❌ Error scanning vault: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          },
+        ],
+      };
+    }
   }
 
   public async handleCreateTask(args: any) {
@@ -190,15 +260,45 @@ export class ObsidianVaultMCPServer {
       throw new Error('Vault not initialized. Please scan a vault first.');
     }
 
-    // For now, return a success message since the full API isn't implemented yet
-    return {
-      content: [
-        {
-          type: 'text',
-          text: `✅ Task "${args.title}" created successfully!\n\nNote: This is a placeholder response. Full task creation will be implemented once the VaultManager API is complete.`,
-        },
-      ],
-    };
+    try {
+      // Create the task request
+      const createRequest: CreateTaskRequest = {
+        type: 'Task',
+        title: args.title,
+        status: args.status || 'To Do',
+        dueDate: args.dueDate,
+        parentProjects: args.parentProjects || [],
+        area: args.area,
+        priority: args.priority || 'Medium',
+        tags: args.tags || [],
+        content: args.description || ''
+      };
+
+      // Use VaultManager to create the task
+      const result = await this.vaultManager.createItem(createRequest);
+
+      if (!result.success) {
+        throw new Error(`Failed to create task: ${result.error}`);
+      }
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `✅ Task "${args.title}" created successfully!\n\nTask ID: ${result.item?.id}\nStatus: ${createRequest.status}\nArea: ${createRequest.area || 'Unassigned'}\nDue Date: ${createRequest.dueDate || 'No due date'}`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `❌ Error creating task: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          },
+        ],
+      };
+    }
   }
 
   public async handleUpdateTask(taskId: string, updates: any) {
@@ -206,15 +306,49 @@ export class ObsidianVaultMCPServer {
       throw new Error('Vault not initialized. Please scan a vault first.');
     }
 
-    // For now, return a success message since the full API isn't implemented yet
-    return {
-      content: [
-        {
-          type: 'text',
-          text: `✅ Task updated successfully!\n\nUpdated fields: ${Object.keys(updates).join(', ')}\n\nNote: This is a placeholder response. Full task updates will be implemented once the VaultManager API is complete.`,
-        },
-      ],
-    };
+    try {
+      // Prepare the update request
+      const updateRequest: UpdateItemRequest = {
+        id: taskId,
+        updates: {
+          title: updates.title,
+          status: updates.status,
+          dueDate: updates.dueDate,
+          area: updates.area,
+          tags: updates.tags,
+          content: updates.description,
+          ...(updates.priority && { priority: updates.priority })
+        }
+      };
+
+      // Use VaultManager to update the task
+      const result = await this.vaultManager.updateItem(updateRequest);
+
+      if (!result.success) {
+        throw new Error(`Failed to update task: ${result.error}`);
+      }
+
+      const updatedTask = result.item as Task;
+      const updatedFields = Object.keys(updates).filter(key => updates[key] !== undefined);
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `✅ Task "${updatedTask.title}" updated successfully!\n\nUpdated fields: ${updatedFields.join(', ')}\n\nCurrent status: ${updatedTask.status}\nPriority: ${(updatedTask as any).priority || 'Medium'}\nArea: ${updatedTask.area || 'Unassigned'}`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `❌ Error updating task: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          },
+        ],
+      };
+    }
   }
 
   public async handleSearchTasks(args: any) {
@@ -222,20 +356,66 @@ export class ObsidianVaultMCPServer {
       throw new Error('Vault not initialized. Please scan a vault first.');
     }
 
-    // For now, return a placeholder response since the full API isn't implemented yet
-    const taskList = [
-      '1. **Sample Task 1** (To Do) - Unassigned',
-      '2. **Sample Task 2** (In Progress) - Work',
-    ].join('\n');
+    try {
+      // Prepare the search request
+      const searchRequest: SearchRequest = {
+        query: args.query,
+        type: 'Task',
+        limit: args.limit || 20,
+        area: args.area,
+        status: args.status,
+        tags: args.tags
+      };
 
-    return {
-      content: [
-        {
-          type: 'text',
-          text: `🔍 Search Results for "${args.query}":\n\n${taskList}\n\nFound ${2} tasks.\n\nNote: This is a placeholder response. Full search functionality will be implemented once the VaultManager API is complete.`,
-        },
-      ],
-    };
+      // Use VaultManager to search for tasks
+      const result = await this.vaultManager.searchItems(searchRequest);
+
+      if (!result.success) {
+        throw new Error(`Search failed: ${result.error}`);
+      }
+
+      if (result.items.length === 0) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `🔍 No tasks found matching "${args.query}"`,
+            },
+          ],
+        };
+      }
+
+      // Format the search results
+      const taskList = result.items
+        .map((task, index) => {
+          const area = (task as any).area || 'Unassigned';
+          const parentProjects = (task as any).parentProjects || [];
+          const parentProject = Array.isArray(parentProjects) && parentProjects.length > 0 
+            ? parentProjects[0] 
+            : '';
+          
+          return `${index + 1}. **${task.title}** (${task.status}) - ${area}${parentProject ? ` - Project: ${parentProject}` : ''}`;
+        })
+        .join('\n');
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `🔍 Search Results for "${args.query}":\n\n${taskList}\n\nFound ${result.total} tasks.`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `❌ Error searching tasks: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          },
+        ],
+      };
+    }
   }
 
   async start() {

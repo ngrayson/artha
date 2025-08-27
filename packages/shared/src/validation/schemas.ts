@@ -5,7 +5,7 @@ import {
   AreaSchema,
   ResourceSchema,
   VaultItemSchema,
-} from '../types/vault-items';
+} from '../types/vault-items.js';
 
 // Base validation schemas
 export const IdSchema = z.string().min(1, 'ID cannot be empty');

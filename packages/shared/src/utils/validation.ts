@@ -1,6 +1,6 @@
 import { z, ZodError } from 'zod';
-import { ValidationError, AppError } from '../types/common';
-import { ERROR_CODES } from './constants';
+import { ValidationError, AppError } from '../types/common.js';
+import { ERROR_CODES } from './constants.js';
 
 /**
  * Validate data against a Zod schema
