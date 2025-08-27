@@ -1,17 +1,46 @@
 #!/usr/bin/env node
 
-const fs = require('fs');
-const path = require('path');
-const Table = require('cli-table3');
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import Table from 'cli-table3';
 
-function parseFrontmatter(content) {
-  const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
+// Get __dirname equivalent in ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+interface Task {
+  file: string;
+  title: string;
+  status: string;
+  priority: string;
+  area: string;
+  dueDate: string;
+  parentProjects: string[] | string;
+  tags: string[];
+  content: string;
+}
+
+interface Frontmatter {
+  Type?: string;
+  Status?: string;
+  Priority?: string;
+  Area?: string;
+  'Due Date'?: string;
+  'Parent Projects'?: string[] | string;
+  Tags?: string[];
+  [key: string]: any;
+}
+
+function parseFrontmatter(content: string): Frontmatter {
+  // Handle both Unix (\n) and Windows (\r\n) line endings
+  const frontmatterMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!frontmatterMatch) return {};
   
   const frontmatter = frontmatterMatch[1];
-  const result = {};
+  const result: Frontmatter = {};
   
-  frontmatter.split('\n').forEach(line => {
+  frontmatter.split(/\r?\n/).forEach(line => {
     const colonIndex = line.indexOf(':');
     if (colonIndex > 0) {
       const key = line.substring(0, colonIndex).trim();
@@ -25,9 +54,9 @@ function parseFrontmatter(content) {
           // Keep as string if parsing fails
         }
       } else if (value === 'true') {
-        value = true;
+        value = 'true';
       } else if (value === 'false') {
-        value = false;
+        value = 'false';
       }
       
       result[key] = value;
@@ -37,7 +66,7 @@ function parseFrontmatter(content) {
   return result;
 }
 
-function scanVault(vaultPath) {
+function scanVault(vaultPath: string): void {
   // Extract just the vault name from the path
   const vaultName = path.basename(vaultPath);
   
@@ -49,7 +78,7 @@ function scanVault(vaultPath) {
   }
   
   const files = fs.readdirSync(projectsDir);
-  const tasks = [];
+  const tasks: Task[] = [];
   
   files.forEach(file => {
     if (file.endsWith('.md')) {
@@ -88,9 +117,9 @@ function scanVault(vaultPath) {
   }
   
   // Sort tasks by status first, then by due date
-  const sortedTasks = outstandingTasks.sort((a, b) => {
+  const sortedTasks = outstandingTasks.sort((a: Task, b: Task) => {
     // First sort by status priority
-    const statusPriority = {
+    const statusPriority: Record<string, number> = {
       'In Progress': 1,
       'To Do': 2,
       'Blocked': 3,
@@ -104,24 +133,23 @@ function scanVault(vaultPath) {
       return statusA - statusB;
     }
     
-    // Then sort by due date (earliest first, no due date last)
-    if (!a.dueDate && !b.dueDate) return 0;
-    if (!a.dueDate) return 1;
-    if (!b.dueDate) return -1;
-    return new Date(a.dueDate) - new Date(b.dueDate);
+    // Then sort by due date (earliest first)
+    if (a.dueDate && b.dueDate) {
+      return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+    }
+    if (a.dueDate) return -1;
+    if (b.dueDate) return 1;
+    
+    return 0;
   });
   
   // Take top 7 tasks
   const topTasks = sortedTasks.slice(0, 7);
   
-  // Create table using cli-table3
+  // Create table
   const table = new Table({
     head: ['Task', 'Status', 'Due Date', 'Area', 'Parent Project'],
-    colWidths: [40, 14, 12, 18, 18],
-    style: {
-      head: ['cyan', 'bold'],
-      border: ['gray']
-    },
+    colWidths: [40, 14, 12, 20, 20],
     chars: {
       'top': '═', 'top-mid': '╤', 'top-left': '╔', 'top-right': '╗',
       'bottom': '═', 'bottom-mid': '╧', 'bottom-left': '╚', 'bottom-right': '╝',
@@ -130,58 +158,52 @@ function scanVault(vaultPath) {
     }
   });
   
-  // Add rows to table
-  topTasks.forEach(task => {
-    const title = task.title || 'Untitled';
-    const status = task.status || 'Unknown';
-    const dueDate = task.dueDate || 'No Due Date';
-    const area = (task.area || 'Unassigned').replace(/[\[\]"]/g, '');
-    
-    // Extract parent project from content or use empty string
+  topTasks.forEach((task: Task) => {
+    // Format parent projects
     let parentProject = '';
-    if (task.parentProjects && Array.isArray(task.parentProjects) && task.parentProjects.length > 0) {
-      parentProject = task.parentProjects[0].replace(/[\[\]]/g, '');
-    } else if (task.parentProjects && typeof task.parentProjects === 'string') {
-      // Handle case where Parent Projects is stored as a string with Obsidian links
-      const parentMatch = task.parentProjects.match(/\[\[([^\]]+)\]\]/);
-      if (parentMatch) {
-        parentProject = parentMatch[1];
-      }
-    } else if (task.content) {
-      // Look for parent project in content as fallback
-      const parentMatch = task.content.match(/Parent Projects?:\s*\[\[([^\]]+)\]\]/);
-      if (parentMatch) {
-        parentProject = parentMatch[1];
+    if (Array.isArray(task.parentProjects) && task.parentProjects.length > 0) {
+      parentProject = task.parentProjects.join(', ');
+    } else if (typeof task.parentProjects === 'string') {
+      // Handle case where parentProjects is a string like "[[Project Name]]"
+      const match = task.parentProjects.match(/\[\[([^\]]+)\]\]/);
+      if (match) {
+        parentProject = match[1];
+      } else {
+        parentProject = task.parentProjects;
       }
     }
     
-    table.push([title, status, dueDate, area, parentProject]);
+    table.push([
+      task.title,
+      task.status,
+      task.dueDate || '',
+      task.area,
+      parentProject
+    ]);
   });
   
-  // Display table directly
+  // Display results
+  console.log(`📋 ${vaultName}`);
   console.log(table.toString());
-  console.log('');
   
-  // Summary statistics
-  console.log('📊 Summary:');
-  console.log(`   Total outstanding tasks: ${outstandingTasks.length}`);
-  
+  // Summary
   const overdueTasks = outstandingTasks.filter(task => {
     if (!task.dueDate) return false;
-    const dueDate = new Date(task.dueDate);
-    const today = new Date();
-    return dueDate < today;
+    return new Date(task.dueDate) < new Date();
   });
-  console.log(`   Overdue tasks: ${overdueTasks.length}`);
   
-  const dueThisWeek = outstandingTasks.filter(task => {
+  const thisWeekTasks = outstandingTasks.filter(task => {
     if (!task.dueDate) return false;
     const dueDate = new Date(task.dueDate);
     const today = new Date();
-    const weekFromNow = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
-    return dueDate <= weekFromNow;
+    const nextWeek = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
+    return dueDate >= today && dueDate <= nextWeek;
   });
-  console.log(`   Due this week: ${dueThisWeek.length}`);
+  
+  console.log('\n📊 Summary:');
+  console.log(`   Total outstanding tasks: ${outstandingTasks.length}`);
+  console.log(`   Overdue tasks: ${overdueTasks.length}`);
+  console.log(`   Due this week: ${thisWeekTasks.length}`);
 }
 
 // Main execution
@@ -193,11 +215,11 @@ if (args.length === 0) {
   process.exit(1);
 }
 
-const vaultPath = path.resolve(args[0]);
+const vaultPath = args[0];
 
-try {
-  scanVault(vaultPath);
-} catch (error) {
-  console.error('❌ Error scanning vault:', error);
+if (!fs.existsSync(vaultPath)) {
+  console.log(`❌ Vault path does not exist: ${vaultPath}`);
   process.exit(1);
 }
+
+scanVault(vaultPath);

@@ -143,10 +143,13 @@ export class SearchManager {
           items.push(item);
           
           // Store highlights
-          if (result.positions) {
-            highlights.set(item.id, Array.from(result.positions).map((pos: number) => 
-              this.index!.items[itemIndex].title.substring(pos, pos + 1)
-            ));
+          if (result.positions && Array.isArray(result.positions)) {
+            highlights.set(item.id, Array.from(result.positions).map((pos: unknown) => {
+              if (typeof pos === 'number') {
+                return this.index!.items[itemIndex].title.substring(pos, pos + 1);
+              }
+              return '';
+            }).filter(Boolean));
           }
         }
       }

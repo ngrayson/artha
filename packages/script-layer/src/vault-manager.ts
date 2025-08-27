@@ -17,10 +17,10 @@ import {
   ListItemsResponse,
   GetItemResponse
 } from '@artha/shared';
-import { TemplateManager } from './template-manager';
-import { SearchManager } from './search-manager';
-import { VaultScanner } from './utils/vault-scanner';
-import { ItemFactory } from './utils/item-factory';
+import { TemplateManager } from './template-manager.js';
+import { SearchManager } from './search-manager.js';
+import { VaultScanner } from './utils/vault-scanner.js';
+import { ItemFactory } from './utils/item-factory.js';
 import { 
   DIRECTORY_NAMES, 
   ERROR_CODES, 
